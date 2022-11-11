@@ -11,9 +11,9 @@
 #pragma comment (lib, "Mswsock.lib")
 #pragma comment (lib, "AdvApi32.lib")
 
-using namespace std;
-
 #define PORT "80"
+
+using namespace std;
 
 int main(int argc, char* argv[])
 {
