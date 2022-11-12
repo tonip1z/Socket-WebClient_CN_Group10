@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
     //Validate parameters (the aplication is used in command promt)
     if (argc != 2)
     {
-        printf("Incorrect syntax. Please use: %s host-name/host-ip.\n", argv[0]);
+        printf("Incorrect syntax. Please use: %s [HTTP or HTTPS URL].\n", argv[0]);
         return 1;
     }
 
@@ -133,7 +133,7 @@ char* getHostnameFromURL(char* URL)
     }
 }
 
-//check if entered host-name/host-ip is entered as a URL starting with "http:" or "https:"
+//check if the entered URL starting with "http:" or "https:" or not
 bool is_HTTP_URL(char* host_name)
 {
     if (host_name[0] == 'h' && host_name[1] == 't' && host_name[2] == 't' && host_name[3] == 'p')
