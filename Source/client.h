@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <string>
+#include <cstring>
 #include <WinSock2.h>
 #include <ws2tcpip.h>
 
@@ -12,5 +13,6 @@ using namespace std;
 #pragma comment (lib, "AdvApi32.lib")
 
 //support functions
+char* getHostnameFromURL(char* URL);
 bool is_HTTP_URL(char* host_name);
 string getIPv4(sockaddr* addr);

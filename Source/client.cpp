@@ -21,6 +21,14 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    //Get host name from URL (argv[1])
+    char* host_name = getHostnameFromURL(argv[1]);
+    if (host_name == NULL)
+    {
+        //Cannot retrieve host name from URL
+        return 1;
+    }
+
     WSADATA wsaData;
 
     //sock_Connect is used for connecting to web servers
@@ -48,20 +56,13 @@ int main(int argc, char* argv[])
     //Resolve the server address and port
     //Please make sure your IP Routing is enabled on your Windows IP Configuration (to check: type ipconfig /all in cmd)
     //To enable IP Routing, see: https://www.wikihow.com/Enable-IP-Routing-on-Windows-10
-    int getAddrInfo_Result = getaddrinfo(argv[1], PORT, &hints, &result);
+    int getAddrInfo_Result = getaddrinfo(host_name, PORT, &hints, &result);
     if (getAddrInfo_Result != 0) 
     {
         if (getAddrInfo_Result == 11001)
         {
             cout << "Host not found.\n";
-
-            //ref: https://superuser.com/questions/326403/can-you-get-a-reply-from-a-https-site-using-the-ping-command
-            if (is_HTTP_URL(argv[1]))
-            {
-                cout << "Cannot retrieve address from an URL. Please enter either a host-name or a host-ip.\n";
-                cout << "(E.g: example.com is a host name, while https://example.com/ is not)\n";
-            }
-
+            cout << "Please make sure you entered the URL with HTTP or HTTPS protocol.\n";
             WSACleanup();
             return 1;
         }
@@ -90,16 +91,46 @@ int main(int argc, char* argv[])
     }
 
     cout << "Connection successfully established.\n";
-    cout << "Host name: " << argv[1] << "\n";
+    cout << "Host name: " << host_name << "\n";
     cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
 
-    
-
     //Clean up
+    delete[] host_name;
     closesocket(sock_Connect);
     WSACleanup();
 
     return 0;
+}
+
+//We specifically want to get a host name from the entered URL, because the program will take an URL as argument and the URL contains the content type (e.g "/" for index.html and "*.html", "*.pdf", etc for other file types)
+//(e.g: get "web.stanford.edu" from "http://web.stanford.edu/dept/its/support/techtraining/techbriefing-media/Intro_Net_91407.ppt")
+char* getHostnameFromURL(char* URL)
+{
+    if (is_HTTP_URL(URL))
+    {
+        char* secondSlash = strchr(URL, '/') + 1;
+        char* thirdSlash = strchr(secondSlash + 1, '/');
+        string host_name = "";
+
+        //everything between second slash and third slash is the host name
+        for (int i = 1; secondSlash + i != thirdSlash; i++)  
+            host_name += *(secondSlash + i);
+        
+        int str_len = host_name.length();
+        char* host_name_chr = new char[str_len + 1];
+        
+        for (int i = 0; i < str_len; i++)
+            host_name_chr[i] = host_name[i];
+
+        host_name_chr[str_len] = '\0';
+        
+        return host_name_chr;
+    }
+    else
+    {
+        cout << "Cannot retrieve host name. The entered URL is not of HTTP or HTTPS protocol.\n";
+        return NULL;
+    }
 }
 
 //check if entered host-name/host-ip is entered as a URL starting with "http:" or "https:"
