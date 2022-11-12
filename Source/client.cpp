@@ -1,20 +1,12 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <iostream>
-#include <windows.h>
-#include <WinSock2.h>
-#include <ws2tcpip.h>
-
 #include "client.h"
 
 //Note to compiler: if you're using g++ to compile this code please add "-lws2_32" after "g++ client.cpp [other files]"
 //For example: "g++ client.cpp -lws2_32"
 
 //ref to winsock2.h example code: https://learn.microsoft.com/en-us/windows/win32/winsock/complete-client-code
-//Link with Ws2_32.lib, Mswsock.lib, and Advapi32.lib
-#pragma comment (lib, "Ws2_32.lib")
-#pragma comment (lib, "Mswsock.lib")
-#pragma comment (lib, "AdvApi32.lib")
 
 #define PORT "80"
 
@@ -97,7 +89,15 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    cout << result->ai_addr << "\n";
+    cout << "Connection successfully established.\n";
+    cout << "Host name: " << argv[1] << "\n";
+    cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
+
+    
+
+    //Clean up
+    closesocket(sock_Connect);
+    WSACleanup();
 
     return 0;
 }
@@ -109,4 +109,16 @@ bool is_HTTP_URL(char* host_name)
         return true;
     
     return false;
+}
+
+//convert sockaddr to string, getting the IPv4 representation of a sockaddr
+//ref code: https://stackoverflow.com/questions/1276294/getting-ipv4-address-from-a-sockaddr-structure, more specifically, ans: https://stackoverflow.com/a/32899053
+string getIPv4(sockaddr* addr)
+{
+    char ipv4[INET_ADDRSTRLEN];
+    char client_service[32];
+
+    getnameinfo(addr, sizeof(*addr), ipv4, INET_ADDRSTRLEN, client_service, 32, NI_NUMERICHOST|NI_NUMERICSERV);
+
+    return string(ipv4);
 }
