@@ -49,6 +49,7 @@ int main(int argc, char* argv[])
     hints.ai_protocol = IPPROTO_TCP;
 
     //Resolve the server address and port
+    //Please make sure your IP Routing is enabled on your Windows IP Configuration (to check: type ipconfig /all in cmd)
     int getAddrInfo_Result = getaddrinfo(argv[1], PORT, &hints, &result);
     if (getAddrInfo_Result != 0) 
     {
