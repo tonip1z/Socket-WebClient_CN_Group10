@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
     //Validate parameters (the aplication is used in command promt)
     if (argc < 2)
     {
-        printf("Incorrect syntax. Please use: %s [HTTP or HTTPS URL].\n", argv[0]);
+        printf("Incorrect syntax. Please use: %s [HTTP or HTTPS URL(s)].\n", argv[0]);
         return 1;
     }
 
