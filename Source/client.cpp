@@ -25,7 +25,7 @@ int main(int argc, char* argv[])
     char* host_name = getHostnameFromURL(argv[1]);
     if (host_name == NULL)
     {
-        //Cannot retrieve host name from URL
+        cout << "Failed to retrieve host name.\n";
         return 1;
     }
 
@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
 
     ZeroMemory( &hints, sizeof(hints) );
     hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_socktype = SOCK_STREAM; //TCP
     hints.ai_protocol = IPPROTO_TCP;
 
     //Resolve the server address and port
@@ -112,10 +112,38 @@ char* getHostnameFromURL(char* URL)
         char* thirdSlash = strchr(secondSlash + 1, '/');
         string host_name = "";
 
-        //everything between second slash and third slash is the host name
-        for (int i = 1; secondSlash + i != thirdSlash; i++)  
-            host_name += *(secondSlash + i);
+        if (secondSlash != NULL && thirdSlash != NULL)
+        {
+            //everything between second slash and third slash is the host name
+            for (int i = 1; secondSlash + i != thirdSlash; i++)  
+                host_name += *(secondSlash + i);
         
+                int str_len = host_name.length();
+                char* host_name_chr = new char[str_len + 1];
+        
+            for (int i = 0; i < str_len; i++)
+                host_name_chr[i] = host_name[i];
+
+            host_name_chr[str_len] = '\0';
+            
+            return host_name_chr;
+        }
+        else if (secondSlash != NULL && thirdSlash == NULL) //in case no thirdslash was found, i.e: https://www.google.com
+        {
+            return (secondSlash + 1);
+        }
+    }
+    else //assume there is no "http://" or "https://" opening in the URL
+    {
+        char* firstSlash = strchr(URL, '/');
+
+        if (firstSlash == NULL) //no path after host name
+            return URL;
+
+        string host_name = "";
+        for (int i = 0; URL + i != firstSlash; i++)
+            host_name += *(URL + i);
+
         int str_len = host_name.length();
         char* host_name_chr = new char[str_len + 1];
         
@@ -126,11 +154,8 @@ char* getHostnameFromURL(char* URL)
         
         return host_name_chr;
     }
-    else
-    {
-        cout << "Cannot retrieve host name. The entered URL is not of HTTP or HTTPS protocol.\n";
-        return NULL;
-    }
+
+    return NULL;
 }
 
 //check if entered host-name/host-ip is entered as a URL starting with "http:" or "https:"
