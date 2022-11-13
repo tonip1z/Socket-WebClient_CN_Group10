@@ -12,6 +12,9 @@ using namespace std;
 #pragma comment (lib, "Mswsock.lib")
 #pragma comment (lib, "AdvApi32.lib")
 
+//main processing function
+void process_address(char* addr, bool multi_threaded);
+
 //support functions
 char* getHostnameFromURL(char* URL);
 bool is_HTTP_URL(char* host_name);
