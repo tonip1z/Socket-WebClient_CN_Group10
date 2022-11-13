@@ -29,7 +29,8 @@ int main(int argc, char* argv[])
     //Initialize Winsock
     WSADATA wsaData;
     int WSAStartup_Result = WSAStartup(MAKEWORD(2,2), &wsaData);
-    if (WSAStartup_Result != 0) {
+    if (WSAStartup_Result != 0) 
+    {
         printf("WSAStartup failed with error: %d\n", WSAStartup_Result);
         return 1;
     }
