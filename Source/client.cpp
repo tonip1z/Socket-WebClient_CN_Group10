@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <iostream>
+#include <string>
 #include <thread>
 #include <mutex> //stop the print result to be overlap from each thread, learn more: https://stackoverflow.com/questions/25848615/c-printing-cout-overlaps-in-multithreading
 #include "client.h"
@@ -138,13 +139,29 @@ void process_address(char* addr, bool multi_threaded)
 
     m.lock();
     if (multi_threaded)
-        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
     cout << "Connection successfully established.\n";
     cout << "Host name: " << host_name << "\n";
     cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
     m.unlock();
     
     //Send HTTP request
+    m.lock();
+    if (multi_threaded)
+        cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+    cout << "Select data managing method:\n";
+    cout << " 1. Content-Length\n";
+    cout << " 2. Transfer-Encoding: chucked\n";
+    cout << "Select (1/2): ";
+    string data_mm;
+    getline(cin, data_mm);
+    while ((data_mm.length() != 1) || (data_mm[0] != '1' && data_mm[0] != '2'))
+    {
+        cout << "Invalid input. Please try again.\n";
+        cout << "Select (1/2): ";
+        getline(cin, data_mm);
+    }
+    m.unlock();
 
     //Clean up
     freeaddrinfo(result);
@@ -228,3 +245,4 @@ string getIPv4(sockaddr* addr)
 
     return string(ipv4);
 }
+
