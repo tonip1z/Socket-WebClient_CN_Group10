@@ -1,7 +1,10 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <iostream>
+#include <fstream>
 #include <string>
+#include <vector>
+#include <cstring>
 #include <thread>
 #include <mutex> //stop the print result to be overlap from each thread, learn more: https://stackoverflow.com/questions/25848615/c-printing-cout-overlaps-in-multithreading
 #include "client.h"
@@ -98,7 +101,10 @@ void process_address(char* addr, bool multi_threaded)
             m.lock();
             if (multi_threaded)
                 cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-            cout << "Host not found.\nPlease make sure you entered the URL with HTTP or HTTPS protocol.\n";
+            cout << "Host not found.\nPlease make sure:\n";
+            cout << "- You have connected to Internet.\n";
+            cout << "- You have 'IP Routing' enabled on your Windows IP Configuration (type 'ipconfig /all' in cmd to check).\n";
+            cout << "- You have entered the URL with HTTP or HTTPS protocol.\n";
             m.unlock();
             return;
         }
@@ -145,23 +151,55 @@ void process_address(char* addr, bool multi_threaded)
     cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
     m.unlock();
     
-    //Send HTTP request
+    //Create HTTP message (initial buffer) and send it
+    string GET_QUERY = create_GET_query(addr, host_name);
+    const char* sendbuff = GET_QUERY.c_str();
+    int byte_sent = send(sock_Connect, sendbuff, (int)strlen(sendbuff), 0);
+    if (byte_sent == SOCKET_ERROR)
+    {
+        m.lock();
+        if (multi_threaded)
+            cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        cout << "Failed to send HTTP message to server.\n";
+        m.unlock();
+        closesocket(sock_Connect);
+        return;
+    }
+
     m.lock();
     if (multi_threaded)
         cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-    cout << "Select data managing method:\n";
-    cout << " 1. Content-Length\n";
-    cout << " 2. Transfer-Encoding: chucked\n";
-    cout << "Select (1/2): ";
-    string data_mm;
-    getline(cin, data_mm);
-    while ((data_mm.length() != 1) || (data_mm[0] != '1' && data_mm[0] != '2'))
-    {
-        cout << "Invalid input. Please try again.\n";
-        cout << "Select (1/2): ";
-        getline(cin, data_mm);
-    }
+    cout << "Sent HTTP request to '" << host_name << "' successfully.\n";
+    cout << "Byte sent to server: " << byte_sent << "\n";
     m.unlock();
+
+    cout << "\n---------------------------------------------------------\n";
+    cout << sendbuff;
+    cout << "\n---------------------------------------------------------\n";
+
+    //Recieve data
+    //ref code: https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-recv
+    int byte_recv;
+    char recvbuff[1024];
+    vector<string> lines;
+    string line;
+    string excess_data = "";
+    clearFileContent("server_response.txt");
+
+    //get status code
+    int status_code;
+    line = recvALineFromServerRepsonse(sock_Connect, lines); //first line of HTTP response contains a status code (e.g. 200, 501, 502, 404,...)
+    getStatusCodeInfo(line, status_code);
+    cout << line;
+
+    if (status_code == 200)
+    {
+        while ((line.length() != 2) && (int(line[0]) != 13) && (int(line[1]) != 10))
+        {
+            line = recvALineFromServerRepsonse(sock_Connect, lines);
+            cout << line;
+        }
+    }
 
     //Clean up
     freeaddrinfo(result);
@@ -246,3 +284,240 @@ string getIPv4(sockaddr* addr)
     return string(ipv4);
 }
 
+string create_GET_query(char* addr, char* host_name)
+{
+    /*General template for simple GET HTTP request used:
+    
+        GET /index.html HTTP/1.1\r\n
+        Host: example.com\r\n
+        Connection: keep-alive\r\n
+        \r\n
+    */
+    
+    string host_name_str = host_name;
+    string GET_query = "GET " + get_abs_path(addr, host_name) + " HTTP/1.1\r\nHost: " + host_name_str + "\r\nConnection: keep-alive\r\n\r\n";
+    
+    return GET_query;
+}
+
+string get_abs_path(char* addr, char* host_name)
+{
+    string addr_str = addr;
+    string host_name_str = host_name;
+    string abs_path = "";
+
+    size_t found = addr_str.find(host_name_str);
+    if (found != string::npos)
+    {
+        for (size_t i = found + host_name_str.length(); i < addr_str.length(); i++)
+            abs_path += addr_str[i];
+    }
+
+    if (abs_path == "/")
+        return "/index.html";
+
+    if (abs_path != "")
+        return abs_path;
+    
+    return "/index.html";
+}
+
+string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &lines)
+{
+    int byte_recv = 0;
+    string line = "";
+    int line_length = 0;
+    char recvbuff[1] = "";
+
+    while (int(recvbuff[0]) == 13 || int(recvbuff[0]) == 10)
+        byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+    
+    while (true)
+    {
+        byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+
+        if (byte_recv > 0)
+        {
+            line += recvbuff;
+            line_length++;
+        }
+            
+        if ((line_length > 1) && (int(line[line_length - 2]) == 13) && (int(line[line_length - 1]) == 10)) //13: CR, 10: LF - '\r\n' in ASCII
+        {
+            lines.push_back(line);
+            return line;
+        } 
+    }
+    
+    return "";
+}
+
+void getStatusCodeInfo(string line, int &status_code)
+{
+    int i = 0, j;
+    int n = line.length();
+    while ((line[i] != ' ') && (i + 1 < n))
+        i++;
+
+    status_code = (int(line[i + 1]) - 48) * 100 + (int(line[i + 2]) - 48) * 10 + (int(line[i + 3]) - 48);
+    cout << "Status: " << status_code << " " << getStatus(status_code) << "\n"; 
+}
+
+string getStatus(int status_code)
+{
+    //list of status code was taken directly from RFC 2616 about HTTP/1.1
+    switch (status_code)
+    {
+        case 100:
+            return "Continue";
+            break;
+        case 101:
+            return "Switching Protocols";
+            break;
+        case 200:
+            return "OK";
+            break;
+        case 201:
+            return "Created";
+            break;
+        case 202:
+            return "Accepted";
+            break;
+        case 203:
+            return "Non-Authoritative Information";
+            break;
+        case 204:
+            return "No Content";
+            break;
+        case 205:
+            return "Reset Content";
+            break;
+        case 206:
+            return "Partial Content";
+            break;
+        case 300:
+            return "Multiple Choices";
+            break;
+        case 301:
+            return "Moved Permanently";
+            break;
+        case 302:
+            return "Found";
+            break;
+        case 303:
+            return "See Other";
+            break;
+        case 304:
+            return "Not Modified";
+            break;
+        case 305:
+            return "Use Proxy";
+            break;
+        case 307:
+            return "Temporary Redirect";
+            break;
+        case 400:
+            return "Bad Request";
+            break;
+        case 401:
+            return "Unauthorized";
+            break;
+        case 402:
+            return "Payment Required";
+            break;
+        case 403:
+            return "Forbidden";
+            break;
+        case 404:
+            return "Not Found";
+            break;
+        case 405:
+            return "Method Not Allowed";
+            break;
+        case 406:
+            return "Not Acceptable";
+            break;
+        case 407:
+            return "Proxy Authentication Required";
+            break;
+        case 408:
+            return "Request Time-out";
+            break;
+        case 409:
+            return "Conflict";
+            break;
+        case 410:
+            return "Gone";
+            break;
+        case 411:
+            return "Length Required";
+            break;
+        case 412:
+            return "Precondition Failed";
+            break;
+        case 413:
+            return "Request Entity Too Large";
+            break;
+        case 414:
+            return "Request-URI Too Large";
+            break;
+        case 415:
+            return "Unsupported Media Type";
+            break;
+        case 416:
+            return "Requested range not satisfiable";
+            break;
+        case 417:
+            return "Expectation Failed";
+            break;
+        case 500:
+            return "Internal Server Error";
+            break;
+        case 501:
+            return "Not Implemented";
+            break;
+        case 502:
+            return "Bad Gateway";
+            break;
+        case 503:
+            return "Service Unavailable";
+            break;
+        case 504:
+            return "Gateway Time-out";
+            break;
+        case 505:
+            return "HTTP Version not supported";
+            break;
+        default:
+            return "Unknown extension-code";
+            break;
+    }
+}
+
+void writetoFile(char data[], int data_size, string filename)
+{
+    ofstream fout;
+    fout.open(filename, ios::app);
+
+    if (fout.is_open())
+    {
+        for (int i = 0; i < data_size; i++)
+            fout << data[i];
+        fout.close();
+    }
+    else
+        cout << "Cannot open " << filename << ".\n";
+}
+
+void clearFileContent(string filename)
+{
+    ofstream fout;
+    fout.open(filename, ios::trunc);
+
+    if (fout.is_open())
+    { 
+        fout.close();
+    }
+    else
+        cout << "Cannot clear contents in " << filename << ".\n";
+}
