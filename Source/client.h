@@ -24,5 +24,5 @@ string get_abs_path(char* addr, char* host_name);
 string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &lines);
 void getStatusCodeInfo(string line, int &status_code);
 string getStatus(int status_code);
-void writetoFile(char data[], int data_size, string filename);
-void clearFileContent(string filename);
+int getContentLength(string CL_header);
+void downloadFile(SOCKET sock_Connect, string filepath, int content_length);

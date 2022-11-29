@@ -36,3 +36,6 @@
 
 # Text
 *.txt
+
+# binary files
+*.html

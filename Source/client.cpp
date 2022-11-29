@@ -173,7 +173,8 @@ void process_address(char* addr, bool multi_threaded)
     cout << "Byte sent to server: " << byte_sent << "\n";
     m.unlock();
 
-    cout << "\n---------------------------------------------------------\n";
+    cout << "\nDATA SENT:\n";
+    cout << "---------------------------------------------------------\n";
     cout << sendbuff;
     cout << "\n---------------------------------------------------------\n";
 
@@ -181,24 +182,40 @@ void process_address(char* addr, bool multi_threaded)
     //ref code: https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-recv
     int byte_recv;
     char recvbuff[1024];
-    vector<string> lines;
+    vector<string> headers;
     string line;
     string excess_data = "";
-    clearFileContent("server_response.txt");
 
     //get status code
     int status_code;
-    line = recvALineFromServerRepsonse(sock_Connect, lines); //first line of HTTP response contains a status code (e.g. 200, 501, 502, 404,...)
+    line = recvALineFromServerRepsonse(sock_Connect, headers); //first line of HTTP response contains a status code (e.g. 200, 501, 502, 404,...)
     getStatusCodeInfo(line, status_code);
-    cout << line;
 
     if (status_code == 200)
     {
-        while ((line.length() != 2) && (int(line[0]) != 13) && (int(line[1]) != 10))
+        int content_length = -1; //if the HTTP response contains "Content-Length" header, store the content length
+                                 //if the HTTP response contains "Transfer-Encoding: chunked", remains -1
+
+        //recieve all the headers, extracts and put them into a vector
+        while ((line.length() != 2) && (int(line[0]) != 13) && (int(line[1]) != 10)) //13: CR, 10: LF - '\r\n' in ASCII
+            line = recvALineFromServerRepsonse(sock_Connect, headers);
+        
+        //Extract "Content-Length" or "Transfer-Encoding: chunked" from the vector headers
+        cout << "\nDATA RECIEVED:\n";
+        cout << "---------------------------------------------------------\n";
+        for (int i = 0; i < headers.size(); i++)
         {
-            line = recvALineFromServerRepsonse(sock_Connect, lines);
-            cout << line;
+            cout << headers[i];
+            if (headers[i].find("Content-Length") != string::npos)
+            {
+                content_length = getContentLength(headers[i]);
+                break;
+            }
         }
+        cout << "(message body)\n";
+        cout << "---------------------------------------------------------\n";
+
+        downloadFile(sock_Connect, "Downloaded/index.html", content_length);
     }
 
     //Clean up
@@ -322,7 +339,7 @@ string get_abs_path(char* addr, char* host_name)
     return "/index.html";
 }
 
-string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &lines)
+string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &headers)
 {
     int byte_recv = 0;
     string line = "";
@@ -344,12 +361,12 @@ string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &lines)
             
         if ((line_length > 1) && (int(line[line_length - 2]) == 13) && (int(line[line_length - 1]) == 10)) //13: CR, 10: LF - '\r\n' in ASCII
         {
-            lines.push_back(line);
+            headers.push_back(line);
             return line;
-        } 
+        }
     }
     
-    return "";
+    return line;
 }
 
 void getStatusCodeInfo(string line, int &status_code)
@@ -494,30 +511,38 @@ string getStatus(int status_code)
     }
 }
 
-void writetoFile(char data[], int data_size, string filename)
+int getContentLength(string CL_header)
+{
+    int content_length = 0;
+    int n = CL_header.length();
+
+    for (int i = 0; i < n; i++)
+        if ((int(CL_header[i]) >= 48) && (int(CL_header[i]) <= 57))
+            content_length = content_length * 10 + (int(CL_header[i]) - 48);
+    
+    return content_length;
+}
+
+void downloadFile(SOCKET sock_Connect, string filepath, int content_length)
 {
     ofstream fout;
-    fout.open(filename, ios::app);
+    fout.open(filepath, ios::binary);
 
     if (fout.is_open())
     {
-        for (int i = 0; i < data_size; i++)
-            fout << data[i];
-        fout.close();
+        int i = 0;
+        int byte_recv;
+        char recvbuff[1];
+        while (i < content_length)
+        {
+            byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+            fout << recvbuff[0];
+
+            i++;
+        }
+
+        cout << "Successfully downloaded file into " << filepath << ".\n";
     }
     else
-        cout << "Cannot open " << filename << ".\n";
-}
-
-void clearFileContent(string filename)
-{
-    ofstream fout;
-    fout.open(filename, ios::trunc);
-
-    if (fout.is_open())
-    { 
-        fout.close();
-    }
-    else
-        cout << "Cannot clear contents in " << filename << ".\n";
+        cout << "Cannot download file.\n";
 }
