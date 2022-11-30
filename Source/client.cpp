@@ -18,9 +18,17 @@
 
 #define PORT "80"
 
-using namespace std;
-
 mutex m;
+//common MIME file types that can be send through HTTP: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+vector<string> MIME_file_types{".aac", ".abw", ".arc", ".avif", ".avi", ".azw", ".bin", ".bmp",
+                                ".bz", ".bz2", ".cda", ".csh", ".css", ".csv", ".doc", ".docx",
+                                ".eot", ".epub", ".gz", ".gif", ".htm", ".html", ".ico", ".ics",
+                                ".jar", ".jpeg", ".jpg", ".js", ".json", ".jsonld", ".mid", ".midi",
+                                ".mjs", ".mp3", ".mp4", ".mpeg", ".mpkg", ".odp", ".ods", ".odt", ".oga",
+                                ".ogv", ".ogx", ".opus", ".otf", ".png", ".pdf", ".php", ".ppt", ".pptx",
+                                ".rar", ".rtf", ".sh", ".svg", ".tar", ".tif", ".tiff", ".ts", ".ttf", ".txt",
+                                ".vsd", ".wav", ".weba", ".webm", ".webp", ".woff", ".woff2", ".xhtml", ".xls",
+                                ".xlsx", ".xml", ".xul", ".zip", ".3gp", ".3g2", ".7z"};
 
 int main(int argc, char* argv[])
 {
@@ -202,6 +210,50 @@ void process_address(char* addr, bool multi_threaded)
         cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
     }
     
+    //Check if need to download multiple files through 1 connection (download folder)
+    string abs_path = get_abs_path(addr, host_name);
+    if (hasFolderName(abs_path)) //send multiple HTTP request
+    {
+        string Folder_name = getFolderName(abs_path);
+        vector<string> file_names;
+        //send initial HTTP request to fetch the "index.html" file, then decode the file to get a list of files that needs to be downloaded
+        bool query_result = REQUEST_QUERY(sock_Connect, addr, host_name, multi_threaded);
+
+        bool get_filenames_result;
+        if (query_result)
+        {
+            get_filenames_result = RESPONSE_QUERY_GET_FILENAMES(sock_Connect, addr, host_name, multi_threaded, file_names);
+
+            //with each filename in file_names: create a new HTTP request to download that file
+            int num_Files = file_names.size();
+            bool REQUEST_result;
+            for (int file_idx = 0; file_idx < num_Files; file_idx++)
+            {
+                REQUEST_result = REQUEST_QUERY_FILENAME(sock_Connect, host_name, abs_path, file_names[file_idx], multi_threaded);
+
+                if (REQUEST_result)
+                    RESPONSE_QUERY_FILENAME(sock_Connect, addr, host_name, file_names[file_idx], multi_threaded);
+            }
+        }
+    }
+    else //send single HTTP request
+    {
+        //Sending data
+        bool query_result = REQUEST_QUERY(sock_Connect, addr, host_name, multi_threaded);
+        
+        //Recieve data
+        if (query_result)
+            RESPONSE_QUERY(sock_Connect, addr, host_name, multi_threaded);
+    }
+    
+    //Clean up
+    freeaddrinfo(result);
+    delete[] host_name;
+    closesocket(sock_Connect);
+}
+
+bool REQUEST_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded)
+{
     //Create HTTP message (initial buffer) and send it
     string GET_QUERY = create_GET_query(addr, host_name);
     const char* sendbuff = GET_QUERY.c_str(); 
@@ -221,10 +273,9 @@ void process_address(char* addr, bool multi_threaded)
             cout << "\nFailed to send HTTP message to server.\n";
         
         closesocket(sock_Connect);
-        return;
+        return false;
     }
 
-    
     if (multi_threaded)
     {
         m.lock();
@@ -241,7 +292,6 @@ void process_address(char* addr, bool multi_threaded)
         cout << "Byte sent to server: " << byte_sent << "\n";
     }
     
-    //
     if (multi_threaded)
     {
         m.lock();
@@ -261,8 +311,44 @@ void process_address(char* addr, bool multi_threaded)
         cout << sendbuff;
         cout << ".........................................................\n";
     }
-    
-    //Recieve data
+
+    return true;
+}
+
+bool REQUEST_QUERY_FILENAME(SOCKET sock_Connect, char* host_name, string abs_path, string file_name, bool multi_threaded)
+{
+    cout << "\nQUERY: GET " << file_name << " at " << host_name << ".\n";
+    string host_name_str = host_name;
+    string GET_QUERY = "GET " + abs_path + file_name + " HTTP/1.1\r\nHost: " + host_name_str + "\r\nConnection: keep-alive\r\n\r\n";
+    const char* sendbuff = GET_QUERY.c_str(); 
+    int byte_sent = send(sock_Connect, sendbuff, (int)strlen(sendbuff), 0);
+    if (byte_sent == SOCKET_ERROR)
+    {  
+        if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
+            cout << "[Thread " << this_thread::get_id() << "] - GET " << file_name << " at " << host_name << ".\n";
+            cout << "Failed to send HTTP message to server.\n";
+            
+            m.unlock();
+        }
+        else
+            cout << "\nFailed to send HTTP message to server.\n";
+        
+        closesocket(sock_Connect);
+        return false;
+    }
+
+    m.lock();
+    cout << sendbuff;
+    m.unlock();
+
+    return true;
+}
+
+void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded)
+{
     //ref code: https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-recv
     int byte_recv;
     vector<string> headers;
@@ -383,10 +469,370 @@ void process_address(char* addr, bool multi_threaded)
         m.unlock();
     }  
 
-    //Clean up
-    freeaddrinfo(result);
-    delete[] host_name;
-    closesocket(sock_Connect);
+}
+
+bool RESPONSE_QUERY_GET_FILENAMES(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded, vector<string> &file_names)
+{
+    int byte_recv;
+    vector<string> headers;
+    string line;
+
+    //get status code
+    int status_code;
+    if (multi_threaded)
+    {
+        m.lock();
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        line = recvALineFromServerRepsonse(sock_Connect, headers);
+        getStatusCodeInfo(line, status_code);
+        
+        m.unlock();
+    }
+    else
+    {
+        line = recvALineFromServerRepsonse(sock_Connect, headers);
+        getStatusCodeInfo(line, status_code);
+    }
+    
+    if (status_code == 200)
+    {
+        int content_length = 0;
+
+        //recieve all the headers, extracts and put them into a vector
+        while ((line.length() != 2) && (int(line[0]) != 13) && (int(line[1]) != 10)) //13: CR, 10: LF - '\r\n' in ASCII
+            line = recvALineFromServerRepsonse(sock_Connect, headers);
+        
+        //Extract "Content-Length" or "Transfer-Encoding: chunked" from the vector headers
+        if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
+            cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+            cout << "DATA RECIEVED from '" << host_name << "':\n";
+            cout << ".........................................................\n";
+            for (int i = 0; i < headers.size(); i++)
+            {
+                cout << headers[i];
+
+                if (headers[i].find("Content-Length") != string::npos)
+                {
+                    content_length = getContentLength(headers[i]);
+                    break;
+                }
+
+                if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+                {
+                    content_length = -1;
+                    break;
+                }
+            }
+            cout << "(message body)\n";
+            cout << ".........................................................\n";
+            
+            m.unlock();
+        }
+        else
+        {
+            cout << "\nDATA RECIEVED from '" << host_name << "':\n";
+            cout << ".........................................................\n";
+            for (int i = 0; i < headers.size(); i++)
+            {
+                cout << headers[i];
+
+                if (headers[i].find("Content-Length") != string::npos)
+                {
+                    content_length = getContentLength(headers[i]);
+                }
+
+                if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+                {
+                    content_length = -1;
+                }
+            }
+            cout << "(message body)\n";
+            cout << ".........................................................\n";
+        }
+        
+        if (content_length > 0) //content-length type
+        {
+            string filename = "index.html";
+            string contents = "";
+            int i = 0;
+            int byte_recv;
+            char recvbuff[1];
+            float progress;
+            float downloadbar = 0;
+            
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "Fetching '" << filename << "': 0%\n";
+                m.unlock();
+            }     
+            else
+                cout << "Fetching '" << filename << "': " << progressBar(0) << "\n";
+
+            while (i < content_length)
+            {
+                byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+
+                if (byte_recv > 0)
+                {
+                    contents += recvbuff[0];
+                    i++;
+                }
+                
+                progress = (float(i) / content_length) * 100;
+                if (progress - downloadbar > 10)
+                {
+                    if (multi_threaded)
+                    {
+                        m.lock();
+                        cout << "Fetching '" << filename << "': " << fixed << setprecision(0) << progress << "%\n";
+                        m.unlock();
+                    }     
+                    else
+                        cout << "Fetching '" << filename << "': " << progressBar(progress) << "\n";
+
+                    downloadbar = progress;
+                }
+                 
+            }
+
+            if (!multi_threaded)
+            {
+                cout << "Fetching '" << filename << "': " << progressBar(100) << "\n";
+                cout << "\nSuccessfully fetched file '" << filename << "'.\n";
+            }
+            else
+            {
+                m.lock();
+                cout << "Fetching '" << filename << "': 100%\n";
+                cout << "Successfully fetched file '" << filename << "'.\n";
+                m.unlock();
+            }
+
+            //Extract filenames by searching for "href="
+            size_t found_href = contents.find("href=");
+            string href_content = "";
+            size_t j;
+
+            while (found_href != string::npos)
+            {
+                href_content = "";
+
+                j = found_href;
+                while (contents[j] != '"')
+                    j++;
+
+                j++;
+                while (contents[j] != '"')
+                {
+                    href_content += contents[j];
+                    j++;
+                }
+
+                if (isFileName(href_content))
+                    file_names.push_back(href_content);
+            
+                found_href = contents.find("href=", found_href + 1);
+            }
+
+            cout << "List of files to be downloaded:\n";
+            for (int k = 0; k < file_names.size(); k++)
+                cout << file_names[k] << "\n";
+
+            return true;
+        }
+        else if (content_length == -1) //Transfer-encoding: chunked
+        {
+            string filename = "index.html";
+            string contents = "";
+            vector<string> chunk_sizes;
+            int chunk_size_10;
+            int byte_recv;
+            int i = 1, chunk_i;
+            char recvbuff[1];
+            string line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes);
+            chunk_size_10 = getChunkSize(line);
+
+            while (chunk_size_10 > 0)
+            {
+                if (multi_threaded)
+                {
+                    m.lock();
+                    cout << "Fetching '" << filename << "': chunk size: " << chunk_size_10 << " (" << i << ")\n";
+                    m.unlock();
+                }
+                else
+                    cout << "Fetching '" << filename << "': chunk size: " << chunk_size_10 << " (" << i << ")\n";
+                
+                chunk_i = 0;
+
+                while (chunk_i < chunk_size_10)
+                {
+                    byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+                    if (byte_recv > 0)
+                    {
+                        contents += recvbuff;
+                        chunk_i++;
+                    }
+                }
+                
+                if (readCRLF(sock_Connect))
+                {
+                    line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes); //get next chunk_size
+                    chunk_size_10 = getChunkSize(line);
+                }
+                else 
+                {
+                    if (multi_threaded)
+                    {
+                        m.lock();
+                        cout << "Download interupted. Cannot fetch '" << filename << "'.\n";
+                        m.unlock();
+                    }
+                    else
+                        cout << "Download interupted. Cannot fetch '" << filename << "'.\n";
+                    
+                    return false;
+                }
+
+                i++;
+            }
+
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "Successfully fetched file '" << filename << "'.\n";
+                m.unlock();
+            }
+            else
+                cout << "\nSuccessfully fetched file '" << filename << "'.\n";
+
+            //Extract filenames by searching for "href="
+            size_t found_href = contents.find("href=");
+            string href_content = "";
+            size_t j;
+
+            while (found_href != string::npos)
+            {
+                href_content = "";
+
+                j = found_href;
+                while (contents[j] != '"')
+                    j++;
+
+                j++;
+                while (contents[j] != '"')
+                {
+                    href_content += contents[j];
+                    j++;
+                }
+
+                if (isFileName(href_content))
+                    file_names.push_back(href_content);
+            
+                found_href = contents.find("href=", found_href + 1);
+            }
+
+            cout << "List of files to be downloaded:\n";
+            for (int k = 0; k < file_names.size(); k++)
+                cout << file_names[k] << "\n";
+
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, string file_name, bool multi_threaded)
+{
+    int byte_recv;
+    vector<string> headers;
+    string line;
+
+    //get status code
+    int status_code;
+    
+    if (multi_threaded)
+    {
+        m.lock();
+        line = recvALineFromServerRepsonse(sock_Connect, headers);
+        getStatusCodeInfo(line, status_code);
+        m.unlock();
+    }
+    else
+    {
+        line = recvALineFromServerRepsonse(sock_Connect, headers);
+        getStatusCodeInfo(line, status_code);
+    }
+    
+    if (status_code == 200)
+    {
+        int content_length = 0; //if the HTTP response contains "Content-Length" header, store the content length
+                                 //if the HTTP response contains "Transfer-Encoding: chunked",  content_length = -1
+
+        //recieve all the headers, extracts and put them into a vector
+        while ((line.length() != 2) && (int(line[0]) != 13) && (int(line[1]) != 10)) //13: CR, 10: LF - '\r\n' in ASCII
+            line = recvALineFromServerRepsonse(sock_Connect, headers);
+        
+        //Extract "Content-Length" or "Transfer-Encoding: chunked" from the vector headers
+        if (multi_threaded)
+        {   
+            for (int i = 0; i < headers.size(); i++)
+            {
+                if (headers[i].find("Content-Length") != string::npos)
+                {
+                    content_length = getContentLength(headers[i]);
+                    break;
+                }
+
+                if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+                {
+                    content_length = -1;
+                    break;
+                }
+            } 
+        }
+        else
+        {
+            for (int i = 0; i < headers.size(); i++)
+            {
+                if (headers[i].find("Content-Length") != string::npos)
+                {
+                    content_length = getContentLength(headers[i]);
+                }
+
+                if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+                {
+                    content_length = -1;
+                }
+            }
+        }
+        
+        if (content_length > 0) //content-length type
+            downloadFile(sock_Connect, file_name, content_length, multi_threaded);
+        else if (content_length == -1) //Transfer-encoding: chunked
+            downloadFile(sock_Connect, file_name, content_length, multi_threaded);
+            
+    }
+    else
+    {
+        if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
+            cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+            cout << "Server responded with non-OK status code. Terminating.\n";
+            
+            m.unlock();
+        }
+        else
+            cout << "Server responded with non-OK status code. Terminating.\n";
+    }
 }
 
 //We specifically want to get a host name from the entered URL, because the program will take an URL as argument and the URL contains the content type (e.g "/" for index.html and "*.html", "*.pdf", etc for other file types)
@@ -495,7 +941,7 @@ string get_abs_path(char* addr, char* host_name)
             abs_path += addr_str[i];
     }
 
-    if (host_name_str == "www.bing.com") //bing.com isn't indexed by google, therefore it does not named 'index.html' like others website
+    if ((host_name_str == "www.bing.com") && (abs_path == "")) //bing.com isn't indexed by google, therefore it does not named 'index.html' like others website
         return "/";
 
     if (abs_path == "/")
@@ -505,6 +951,57 @@ string get_abs_path(char* addr, char* host_name)
         return abs_path;
     
     return "/index.html";
+}
+
+bool hasFolderName(string abs_path)
+{
+    if (abs_path.length() == 0)
+        return false;
+    
+    if (abs_path == "index.html")
+        return false;
+
+    int n = abs_path.length();
+    if (abs_path[n - 1] != '/')
+        return false;
+
+    for (int i = n - 2; i >= 0; i--)
+    {
+        if (abs_path[i] == '/')
+            break;
+        
+        if (abs_path[i] == '.')
+            return false;
+    }
+
+    return true;
+}
+
+string getFolderName(string abs_path)
+{
+    int n = abs_path.length();
+    string Folder_name = "";
+    for (int i = n - 2; i >= n; i--)
+    {
+        if (abs_path[i] == '/')
+            return Folder_name;
+        
+        Folder_name = abs_path[i] + Folder_name;
+    }
+
+    return "NewFolder";
+}
+
+bool isFileName(string filename)
+{
+    //List of file extentions: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+    int n = MIME_file_types.size();
+
+    for (int i = 0; i < n; i++)
+        if (filename.find(MIME_file_types[i]) != string::npos)
+            return true;
+    
+    return false;
 }
 
 string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &headers)

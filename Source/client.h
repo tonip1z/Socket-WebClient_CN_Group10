@@ -14,6 +14,11 @@ using namespace std;
 
 //main processing function
 void process_address(char* addr, bool multi_threaded);
+bool REQUEST_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded);
+bool REQUEST_QUERY_FILENAME(SOCKET sock_Connect, char* host_name, string abs_path, string file_name, bool multi_threaded);
+void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded);
+bool RESPONSE_QUERY_GET_FILENAMES(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded, vector<string> &file_names);
+void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, string file_name, bool multi_threaded);
 
 //support functions
 char* getHostnameFromURL(char* URL);
@@ -21,6 +26,9 @@ bool is_HTTP_URL(char* host_name);
 string getIPv4(sockaddr* addr);
 string create_GET_query(char* addr, char* host_name);
 string get_abs_path(char* addr, char* host_name);
+bool hasFolderName(string abs_path);
+string getFolderName(string abs_path);
+bool isFileName(string filename);
 string recvALineFromServerRepsonse(SOCKET sock_Connect, vector<string> &lines);
 void getStatusCodeInfo(string line, int &status_code);
 string getStatus(int status_code);
