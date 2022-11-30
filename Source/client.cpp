@@ -68,11 +68,17 @@ void process_address(char* addr, bool multi_threaded)
     char* host_name = getHostnameFromURL(addr);
     if (host_name == NULL)
     {
-        m.lock();
         if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
             cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-        cout << "Failed to retrieve host name.\n";
-        m.unlock();
+            cout << "Failed to retrieve host name.\n";
+            m.unlock();
+        }
+        else
+            cout << "\nFailed to retrieve host name.\n";
+        
         return;
     }
 
@@ -99,22 +105,42 @@ void process_address(char* addr, bool multi_threaded)
     {
         if (getAddrInfo_Result == 11001)
         {
-            m.lock();
             if (multi_threaded)
+            {
+                m.lock();
+                cout << "----------------------------------------------------------------------------------------------------------------------\n";
                 cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-            cout << "Host not found.\nPlease make sure:\n";
-            cout << "- You have connected to Internet.\n";
-            cout << "- You have 'IP Routing' enabled on your Windows IP Configuration (type 'ipconfig /all' in cmd to check).\n";
-            cout << "- You have entered the URL with HTTP or HTTPS protocol.\n";
-            m.unlock();
+                cout << "Host not found.\nPlease make sure:\n";
+                cout << "- You have connected to Internet.\n";
+                cout << "- You have 'IP Routing' enabled on your Windows IP Configuration (type 'ipconfig /all' in cmd to check).\n";
+                cout << "- You have entered the URL with HTTP or HTTPS protocol.\n";
+                
+                m.unlock();
+            }
+            else
+            {
+                cout << "\nHost not found.\nPlease make sure:\n";
+                cout << "- You have connected to Internet.\n";
+                cout << "- You have 'IP Routing' enabled on your Windows IP Configuration (type 'ipconfig /all' in cmd to check).\n";
+                cout << "- You have entered the URL with HTTP or HTTPS protocol.\n";
+            }
+            
             return;
         }
         
-        m.lock();
+        
         if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
             cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-        printf("getaddrinfo failed with error: %d\n", getAddrInfo_Result);
-        m.unlock();
+            cout << "Failed to resolve address.\n";
+            
+            m.unlock();
+        }
+        else
+            cout << "\nFailed to resolve address.\n";
+        
         return;
     }
 
@@ -122,11 +148,18 @@ void process_address(char* addr, bool multi_threaded)
     sock_Connect = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
     if (sock_Connect == INVALID_SOCKET)
     {
-        m.lock();
         if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
             cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-        cout << "Failed to create socket.\n";
-        m.unlock();
+            cout << "Failed to create socket.\n";
+            
+            m.unlock();
+        }
+        else 
+            cout << "\nFailed to create socket.\n";
+        
         return;
     }
 
@@ -134,64 +167,126 @@ void process_address(char* addr, bool multi_threaded)
     int connect_Result = connect(sock_Connect, result->ai_addr, (int)result->ai_addrlen);
     if (connect_Result == SOCKET_ERROR)
     {
-        m.lock();
         if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
             cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-        cout << "Connection failed.\n";
-        m.unlock();
+            cout << "Connection failed.\n";
+            
+            m.unlock();
+        }
+        else
+            cout << "\nConnection failed.\n";
+        
         closesocket(sock_Connect);
         sock_Connect = INVALID_SOCKET;
         return;
     }
 
-    m.lock();
     if (multi_threaded)
-        cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-    cout << "Connection successfully established.\n";
-    cout << "Host name: " << host_name << "\n";
-    cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
-    m.unlock();
+    {
+        m.lock();
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        cout << "Connection successfully established.\n";
+        cout << "Host name: " << host_name << "\n";
+        cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
+        
+        m.unlock();
+    }
+    else
+    {
+        cout << "\nConnection successfully established.\n";
+        cout << "Host name: " << host_name << "\n";
+        cout << "Host IP: " << getIPv4(result->ai_addr) << "\n";
+    }
     
     //Create HTTP message (initial buffer) and send it
     string GET_QUERY = create_GET_query(addr, host_name);
-    const char* sendbuff = GET_QUERY.c_str();
+    const char* sendbuff = GET_QUERY.c_str(); 
     int byte_sent = send(sock_Connect, sendbuff, (int)strlen(sendbuff), 0);
     if (byte_sent == SOCKET_ERROR)
-    {
-        m.lock();
+    {  
         if (multi_threaded)
-            cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-        cout << "Failed to send HTTP message to server.\n";
-        m.unlock();
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
+            cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+            cout << "Failed to send HTTP message to server.\n";
+            
+            m.unlock();
+        }
+        else
+            cout << "\nFailed to send HTTP message to server.\n";
+        
         closesocket(sock_Connect);
         return;
     }
 
-    m.lock();
+    
     if (multi_threaded)
-        cout << "\n[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
-    cout << "Sent HTTP request to '" << host_name << "' successfully.\n";
-    cout << "Byte sent to server: " << byte_sent << "\n";
-    m.unlock();
-
-    cout << "\nDATA SENT:\n";
-    cout << "---------------------------------------------------------\n";
-    cout << sendbuff;
-    cout << "\n---------------------------------------------------------\n";
-
+    {
+        m.lock();
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        cout << "Sent HTTP request to '" << host_name << "' successfully.\n";
+        cout << "Byte sent to server: " << byte_sent << "\n";
+        
+        m.unlock();
+    }
+    else 
+    {
+        cout << "\nSent HTTP request to '" << host_name << "' successfully.\n";
+        cout << "Byte sent to server: " << byte_sent << "\n";
+    }
+    
+    //
+    if (multi_threaded)
+    {
+        m.lock();
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        cout << "DATA SENT to '" << host_name <<"':\n";
+        cout << ".........................................................\n";
+        cout << sendbuff;
+        cout << ".........................................................\n";
+       
+        m.unlock();
+    }
+    else
+    {
+        cout << "\nDATA SENT to '" << host_name <<"':\n";
+        cout << ".........................................................\n";
+        cout << sendbuff;
+        cout << ".........................................................\n";
+    }
+    
     //Recieve data
     //ref code: https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-recv
     int byte_recv;
-    char recvbuff[1024];
     vector<string> headers;
     string line;
     string excess_data = "";
 
     //get status code
     int status_code;
-    line = recvALineFromServerRepsonse(sock_Connect, headers); //first line of HTTP response contains a status code (e.g. 200, 501, 502, 404,...)
-    getStatusCodeInfo(line, status_code);
-
+    if (multi_threaded)
+    {
+        m.lock();
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+        line = recvALineFromServerRepsonse(sock_Connect, headers); //first line of HTTP response contains a status code (e.g. 200, 501, 502, 404,...)
+        getStatusCodeInfo(line, status_code);
+        
+        m.unlock();
+    }
+    else
+    {
+        line = recvALineFromServerRepsonse(sock_Connect, headers);
+        getStatusCodeInfo(line, status_code);
+    }
+    
     if (status_code == 200)
     {
         int content_length = 0; //if the HTTP response contains "Content-Length" header, store the content length
@@ -202,42 +297,91 @@ void process_address(char* addr, bool multi_threaded)
             line = recvALineFromServerRepsonse(sock_Connect, headers);
         
         //Extract "Content-Length" or "Transfer-Encoding: chunked" from the vector headers
-        cout << "\nDATA RECIEVED:\n";
-        cout << "---------------------------------------------------------\n";
-        for (int i = 0; i < headers.size(); i++)
+        if (multi_threaded)
         {
-            cout << headers[i];
-
-            if (headers[i].find("Content-Length") != string::npos)
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
+            cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+            cout << "DATA RECIEVED from '" << host_name << "':\n";
+            cout << ".........................................................\n";
+            for (int i = 0; i < headers.size(); i++)
             {
-                content_length = getContentLength(headers[i]);
-                break;
-            }
+                cout << headers[i];
 
-            if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
-            {
-                content_length = -1;
-                break;
+                if (headers[i].find("Content-Length") != string::npos)
+                {
+                    content_length = getContentLength(headers[i]);
+                    break;
+                }
+
+                if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+                {
+                    content_length = -1;
+                    break;
+                }
             }
+            cout << "(message body)\n";
+            cout << ".........................................................\n";
+            
+            m.unlock();
         }
-        cout << "(message body)\n";
-        cout << "---------------------------------------------------------\n";
+        else
+        {
+            cout << "\nDATA RECIEVED from '" << host_name << "':\n";
+            cout << ".........................................................\n";
+            for (int i = 0; i < headers.size(); i++)
+            {
+                cout << headers[i];
 
+                if (headers[i].find("Content-Length") != string::npos)
+                {
+                    content_length = getContentLength(headers[i]);
+                }
+
+                if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+                {
+                    content_length = -1;
+                }
+            }
+            cout << "(message body)\n";
+            cout << ".........................................................\n";
+        }
+        
         if (content_length > 0) //content-length type
         {
             string filename = get_filename(addr);
-            downloadFile(sock_Connect, filename, content_length);
+            downloadFile(sock_Connect, filename, content_length, multi_threaded);
         }
         else if (content_length == -1) //Transfer-encoding: chunked
         {
             string filename = get_filename(addr);
-            downloadFile(sock_Connect, filename, content_length);
+            downloadFile(sock_Connect, filename, content_length, multi_threaded);
         }
     }
     else
     {
-        cout << "Server responded with non-OK status code. Terminating.\n";
+        if (multi_threaded)
+        {
+            m.lock();
+            cout << "----------------------------------------------------------------------------------------------------------------------\n";
+            cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+            cout << "Server responded with non-OK status code. Terminating.\n";
+            
+            m.unlock();
+        }
+        else
+            cout << "Server responded with non-OK status code. Terminating.\n";
     }
+
+    //Notify if the thread exitted successfully
+    if (multi_threaded)
+    {
+        m.lock();
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        cout << "Thread " << this_thread::get_id() << " exitted with no error.\n";
+        cout << "----------------------------------------------------------------------------------------------------------------------\n";
+        m.unlock();
+    }  
 
     //Clean up
     freeaddrinfo(result);
@@ -570,7 +714,7 @@ string get_filename(char* addr)
     return "index.html";
 }
 
-void downloadFile(SOCKET sock_Connect, string filename, int content_length)
+void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool multi_threaded)
 {
     if (content_length > 0) //Download "content-length" type
     {
@@ -584,30 +728,74 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length)
             char recvbuff[1];
             float progress;
             float downloadbar = 0;
-            cout << "Downloading: 0%\n";
+            
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "Downloading '" << filename << "': 0%\n";
+                m.unlock();
+            }     
+            else
+                cout << "Downloading '" << filename << "': " << progressBar(0) << "\n";
+
             while (i < content_length)
             {
                 byte_recv = recv(sock_Connect, recvbuff, 1, 0);
-                fout << recvbuff[0];
-                i++;
+
+                if (byte_recv > 0)
+                {
+                    fout << recvbuff[0];
+                    i++;
+                }
+                
                 progress = (float(i) / content_length) * 100;
                 if (progress - downloadbar > 10)
                 {
-                    cout << "Downloading: " << fixed << setprecision(0) << progress << "%\n";
+                    if (multi_threaded)
+                    {
+                        m.lock();
+                        cout << "Downloading '" << filename << "': " << fixed << setprecision(0) << progress << "%\n";
+                        m.unlock();
+                    }     
+                    else
+                        cout << "Downloading '" << filename << "': " << progressBar(progress) << "\n";
+
                     downloadbar = progress;
                 }
+                 
             }
 
-            cout << "Downloading: 100%\n\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
-
+            if (!multi_threaded)
+            {
+                cout << "Downloading '" << filename << "': " << progressBar(100) << "\n";
+                cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+            }
+            else
+            {
+                m.lock();
+                cout << "Downloading '" << filename << "': 100%\n";
+                cout << "Successfully downloaded file '" << filename << "' into program directory.\n";
+                m.unlock();
+            }
+            
             fout.close();
         }
         else
-            cout << "\nCannot download '" << filename <<"'.\n";
+        {
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "----------------------------------------------------------------------------------------------------------------------\n";
+                cout << "Cannot download '" << filename <<"'.\n";
+                m.unlock();
+            }
+            else
+                cout << "\nCannot download '" << filename <<"'.\n";
+        }
+            
     }
     else if (content_length == -1) //Download "Transfer-Encoding: chunked" type
     {
-
         ofstream fout;
         fout.open(filename, ios::binary);
 
@@ -615,27 +803,22 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length)
         {
             vector<string> chunk_sizes;
             int chunk_size_10;
-            int byte_recv, n, i;
+            int byte_recv;
+            int i = 1;
             char recvbuff[1];
             string line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes);
             chunk_size_10 = getChunkSize(line);
 
             while (chunk_size_10 > 0)
             {
-                cout << "Downloading: chunk size: " << chunk_size_10 << "\n";
-                
-                /*
-                line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes); //read data including CRLF "\r\n"
-                n = line.length();
-                for (int i = 0; i < n - 1; i++)
-                    if ((int(line[i]) != 13) && (int(line[i + 1]) != 10))
-                        fout << line[i];
-                    else if ((int(line[i]) == 13) && (int(line[i + 1]) == 10))
-                        break;
-
-                line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes); //get next chunk_size
-                chunk_size_10 = getChunkSize(line);
-                */
+                if (multi_threaded)
+                {
+                    m.lock();
+                    cout << "Downloading '" << filename << "': chunk size: " << chunk_size_10 << " (" << i << ")\n";
+                    m.unlock();
+                }
+                else
+                    cout << "Downloading '" << filename << "': chunk size: " << chunk_size_10 << " (" << i << ")\n";
                 
                 readChunk(fout, sock_Connect, chunk_size_10);
                 if (readCRLF(sock_Connect))
@@ -645,18 +828,73 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length)
                 }
                 else 
                 {
-                    cout << "Download interupted.\n";
+                    if (multi_threaded)
+                    {
+                        m.lock();
+                        cout << "Download interupted. Cannot download '" << filename << "'.\n";
+                        m.unlock();
+                    }
+                    else
+                        cout << "Download interupted. Cannot download '" << filename << "'.\n";
+                    
                     fout.close();
                     return;
                 }
+
+                i++;
             }
 
-            cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "Successfully downloaded file '" << filename << "' into program directory.\n";
+                m.unlock();
+            }
+            else
+                cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+            
             fout.close();
         }
         else
-            cout << "\nCannot download '" << filename <<"'.\n";
+        {
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "Cannot download '" << filename <<"'.\n";
+                m.unlock();
+            }
+            else
+                cout << "\nCannot download '" << filename <<"'.\n";
+        }
     }
+}
+
+string progressBar(float progress)
+{
+    if (progress >= 100)
+        return "[==============================] 100%";
+    else if (progress >= 90)
+        return "[===========================---] 90%";
+    else if (progress >= 80)
+        return "[========================------] 80%";
+    else if (progress >= 70)
+        return "[=====================---------] 70%";
+    else if (progress >= 60)
+        return "[==================------------] 60%";
+    else if (progress >= 50)
+        return "[===============---------------] 50%";
+    else if (progress >= 40)
+        return "[============------------------] 40%";
+    else if (progress >= 30)
+        return "[=========---------------------] 30%";
+    else if (progress >= 20)
+        return "[======------------------------] 20%";
+    else if (progress >= 10)
+        return "[===---------------------------] 10%";
+    else if (progress >= 0)
+        return "[------------------------------] 0%";
+    
+    return "";
 }
 
 int getChunkSize(string chunk_size_16) //convert hexadecimal data read from a line (in string)

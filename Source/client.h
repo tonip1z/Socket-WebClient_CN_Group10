@@ -29,5 +29,6 @@ string get_filename(char* addr);
 int getChunkSize(string chunk_size_16);
 void readChunk(ofstream &fout, SOCKET sock_Connect, int chunk_size);
 bool readCRLF(SOCKET sock_Connect);
-void downloadFile(SOCKET sock_Connect, string filename, int content_length);
+void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool multi_threaded);
+string progressBar(float progress);
 void printline(string line);
