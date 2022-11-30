@@ -37,5 +37,11 @@
 # Text
 *.txt
 
-# binary files
+# download file files
 *.html
+*.pdf
+*.ppt
+*.doc
+*.pptx
+*.docx
+*.aspx

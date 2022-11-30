@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -193,8 +194,8 @@ void process_address(char* addr, bool multi_threaded)
 
     if (status_code == 200)
     {
-        int content_length = -1; //if the HTTP response contains "Content-Length" header, store the content length
-                                 //if the HTTP response contains "Transfer-Encoding: chunked", remains -1
+        int content_length = 0; //if the HTTP response contains "Content-Length" header, store the content length
+                                 //if the HTTP response contains "Transfer-Encoding: chunked",  content_length = -1
 
         //recieve all the headers, extracts and put them into a vector
         while ((line.length() != 2) && (int(line[0]) != 13) && (int(line[1]) != 10)) //13: CR, 10: LF - '\r\n' in ASCII
@@ -206,16 +207,36 @@ void process_address(char* addr, bool multi_threaded)
         for (int i = 0; i < headers.size(); i++)
         {
             cout << headers[i];
+
             if (headers[i].find("Content-Length") != string::npos)
             {
                 content_length = getContentLength(headers[i]);
+                break;
+            }
+
+            if (headers[i].find("Transfer-Encoding: chunked") != string::npos)
+            {
+                content_length = -1;
                 break;
             }
         }
         cout << "(message body)\n";
         cout << "---------------------------------------------------------\n";
 
-        downloadFile(sock_Connect, "Downloaded/index.html", content_length);
+        if (content_length > 0) //content-length type
+        {
+            string filename = get_filename(addr);
+            downloadFile(sock_Connect, filename, content_length);
+        }
+        else if (content_length == -1) //Transfer-encoding: chunked
+        {
+            string filename = get_filename(addr);
+            downloadFile(sock_Connect, filename, content_length);
+        }
+    }
+    else
+    {
+        cout << "Server responded with non-OK status code. Terminating.\n";
     }
 
     //Clean up
@@ -313,7 +334,7 @@ string create_GET_query(char* addr, char* host_name)
     
     string host_name_str = host_name;
     string GET_query = "GET " + get_abs_path(addr, host_name) + " HTTP/1.1\r\nHost: " + host_name_str + "\r\nConnection: keep-alive\r\n\r\n";
-    
+
     return GET_query;
 }
 
@@ -329,6 +350,9 @@ string get_abs_path(char* addr, char* host_name)
         for (size_t i = found + host_name_str.length(); i < addr_str.length(); i++)
             abs_path += addr_str[i];
     }
+
+    if (host_name_str == "www.bing.com") //bing.com isn't indexed by google, therefore it does not named 'index.html' like others website
+        return "/";
 
     if (abs_path == "/")
         return "/index.html";
@@ -523,26 +547,198 @@ int getContentLength(string CL_header)
     return content_length;
 }
 
-void downloadFile(SOCKET sock_Connect, string filepath, int content_length)
+string get_filename(char* addr)
 {
-    ofstream fout;
-    fout.open(filepath, ios::binary);
+    string addr_str = addr;
+    string filename = "";
+    int n = addr_str.length();
 
-    if (fout.is_open())
+    if (addr_str[n - 1] == '/')
+        return "index.html";
+
+    for (int i = n - 1; i >= 0; i--)
     {
-        int i = 0;
-        int byte_recv;
-        char recvbuff[1];
-        while (i < content_length)
-        {
-            byte_recv = recv(sock_Connect, recvbuff, 1, 0);
-            fout << recvbuff[0];
+        if (addr_str[i] == '/')
+            return filename;
+        else
+            filename = addr_str[i] + filename;
+    }
 
+    if (addr_str.find("bing.com") != string::npos)
+        return "Bing.html";
+
+    return "index.html";
+}
+
+void downloadFile(SOCKET sock_Connect, string filename, int content_length)
+{
+    if (content_length > 0) //Download "content-length" type
+    {
+        ofstream fout;
+        fout.open(filename, ios::binary);
+
+        if (fout.is_open())
+        {
+            int i = 0;
+            int byte_recv;
+            char recvbuff[1];
+            float progress;
+            float downloadbar = 0;
+            cout << "Downloading: 0%\n";
+            while (i < content_length)
+            {
+                byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+                fout << recvbuff[0];
+                i++;
+                progress = (float(i) / content_length) * 100;
+                if (progress - downloadbar > 10)
+                {
+                    cout << "Downloading: " << fixed << setprecision(0) << progress << "%\n";
+                    downloadbar = progress;
+                }
+            }
+
+            cout << "Downloading: 100%\n\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+
+            fout.close();
+        }
+        else
+            cout << "\nCannot download '" << filename <<"'.\n";
+    }
+    else if (content_length == -1) //Download "Transfer-Encoding: chunked" type
+    {
+
+        ofstream fout;
+        fout.open(filename, ios::binary);
+
+        if (fout.is_open())
+        {
+            vector<string> chunk_sizes;
+            int chunk_size_10;
+            int byte_recv, n, i;
+            char recvbuff[1];
+            string line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes);
+            chunk_size_10 = getChunkSize(line);
+
+            while (chunk_size_10 > 0)
+            {
+                cout << "Downloading: chunk size: " << chunk_size_10 << "\n";
+                
+                /*
+                line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes); //read data including CRLF "\r\n"
+                n = line.length();
+                for (int i = 0; i < n - 1; i++)
+                    if ((int(line[i]) != 13) && (int(line[i + 1]) != 10))
+                        fout << line[i];
+                    else if ((int(line[i]) == 13) && (int(line[i + 1]) == 10))
+                        break;
+
+                line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes); //get next chunk_size
+                chunk_size_10 = getChunkSize(line);
+                */
+                
+                readChunk(fout, sock_Connect, chunk_size_10);
+                if (readCRLF(sock_Connect))
+                {
+                    line = recvALineFromServerRepsonse(sock_Connect, chunk_sizes); //get next chunk_size
+                    chunk_size_10 = getChunkSize(line);
+                }
+                else 
+                {
+                    cout << "Download interupted.\n";
+                    fout.close();
+                    return;
+                }
+            }
+
+            cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+            fout.close();
+        }
+        else
+            cout << "\nCannot download '" << filename <<"'.\n";
+    }
+}
+
+int getChunkSize(string chunk_size_16) //convert hexadecimal data read from a line (in string)
+{
+    int chunk_size_10 = 0;
+    int pow16 = 1;
+    int n = chunk_size_16.length() - 2; //excluding CRLF "\r\n"
+    int digit;
+
+    for (int i = n - 1; i >= 0; i--)
+    {
+        if ((int(chunk_size_16[i]) >= 48) && (int(chunk_size_16[i]) <= 57))
+            digit = int(chunk_size_16[i]) - 48;
+        else if ((int(chunk_size_16[i]) >= 97) && (int(chunk_size_16[i]) <= 102)) //lowercase a, b, c, d, e, f
+            digit = int(chunk_size_16[i]) - 87;
+        else if ((int(chunk_size_16[i]) >= 65) && (int(chunk_size_16[i]) <= 70)) //uppercase A, B, C, D, E, F
+            digit = int(chunk_size_16[i]) - 55;
+        
+        if ((digit >= 0) && (digit <= 15))
+        {
+            chunk_size_10 += digit * pow16;
+            pow16 *= 16;
+        }
+    }
+
+    return chunk_size_10;
+}
+
+void readChunk(ofstream &fout, SOCKET sock_Connect, int chunk_size)
+{
+    int i = 0;
+    int byte_recv;
+    char recvbuff[1];
+    string chunk = "";
+    while (i < chunk_size)
+    {
+        byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+        if (byte_recv > 0)
+        {
+            chunk += recvbuff[0];
             i++;
         }
-
-        cout << "Successfully downloaded file into " << filepath << ".\n";
     }
-    else
-        cout << "Cannot download file.\n";
+
+    int n = chunk.length();
+    for (int i = 0; i < n; i++)
+        fout << chunk[i];
+}
+
+bool readCRLF(SOCKET sock_Connect)
+{
+    int byte_recv;
+    char recvbuff[1];
+    string line = "";
+
+    while (true)
+    {
+        byte_recv = recv(sock_Connect, recvbuff, 1, 0);
+        if (byte_recv > 0)
+        {
+            line += recvbuff[0];
+        }
+
+        if (line.length() == 2)
+        {
+            if ((int(line[0]) == 13) && (int(line[1]) == 10))
+                return true;
+        }
+
+        if (line.length() > 2)
+            return false;
+    }
+}
+
+void printline(string line)
+{
+    int n = line.length();
+    for (int i = 0; i < n; i++)
+        if (int(line[i]) == 13)
+            cout << "CR";
+        else if (int(line[i]) == 10)
+            cout << "LF\n";
+        else
+            cout << line[i];
 }
