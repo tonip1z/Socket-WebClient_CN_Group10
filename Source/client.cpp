@@ -19,6 +19,8 @@
 
 #define PORT "80"
 
+using namespace  std;
+
 mutex m;
 //common MIME file types that can be send through HTTP: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
 vector<string> MIME_file_types{".aac", ".abw", ".arc", ".avif", ".avi", ".azw", ".bin", ".bmp",
@@ -252,6 +254,75 @@ void process_address(char* addr, bool multi_threaded)
 
                 if (REQUEST_result)
                     RESPONSE_QUERY_FILENAME(sock_Connect, addr, host_name, file_names[file_idx], multi_threaded, folder_dir);
+                else
+                {
+                    if (multi_threaded)
+                    {
+                        m.lock();
+                        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                        cout << "Failed to send HTTP request to download '" << file_names[file_idx] << "'. (Connection closed)\n";
+                        m.unlock();
+                    }
+                    else
+                        cout << "Failed to send HTTP request to download '" << file_names[file_idx] << "'. (Connection closed)\n";
+
+                    //Retry connection until successfully send data or until user closes connection
+                    while (!query_result)
+                    {
+                        if (multi_threaded)
+                        {
+                            m.lock();
+                            cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                            cout << "Retrying connection for '" << file_names[file_idx] << "'. Enter 'ESC' to cancel retrying and close connection.\n";
+                            m.unlock();
+                        }
+                        else
+                            cout << "Retrying connection for '" << file_names[file_idx] << "'. Enter 'ESC' to cancel retrying and close connection.\n";
+
+                        if (GetAsyncKeyState(VK_ESCAPE))
+                        {
+                            if (multi_threaded) //if this was used in a multi-thread enviroment, ALL THREADS THAT WAS CURRENT HAVING CONNECTION PROBLEMS WILL BE TERMINATED
+                            {
+                                m.lock();
+                                cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                                cout << "Connection terminated by user.\n";
+                                m.unlock();
+                            }
+                            else
+                                cout << "Connection terminated by user.\n";
+                            
+                            int shutdown_result = shutdown(sock_Connect, SD_SEND);
+                            freeaddrinfo(result);
+                            delete[] host_name;
+                            closesocket(sock_Connect);
+                            return;
+                        }
+
+                        connect_Result = connect(sock_Connect, result->ai_addr, (int)result->ai_addrlen);
+                        if (connect_Result == SOCKET_ERROR)
+                        {
+                            if (multi_threaded)
+                            {
+                                m.lock();
+                                cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                                cout << "Connection failed.\n";
+                                m.unlock();
+                            }
+                            else
+                                cout << "\nConnection failed.\n";
+                            
+                            closesocket(sock_Connect);
+                            sock_Connect = INVALID_SOCKET;
+                            continue;
+                        }
+
+                        query_result = REQUEST_QUERY(sock_Connect, addr, host_name, multi_threaded);
+                    } 
+
+                    //connection re-established successfully, process the response from server
+                    RESPONSE_QUERY(sock_Connect, addr, host_name, multi_threaded, folder_dir);
+                }
+                    
             }
         }
     }
@@ -262,11 +333,80 @@ void process_address(char* addr, bool multi_threaded)
         
         //Recieve data
         string folder_dir = "";
-        if (query_result)
+        if (query_result) //send request successfully, waiting to recv data
             RESPONSE_QUERY(sock_Connect, addr, host_name, multi_threaded, folder_dir);
+        else
+        {
+            if (multi_threaded)
+            {
+                m.lock();
+                cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                cout << "Failed to send HTTP request. (Connection closed)\n";
+                m.unlock();
+            }
+            else
+                cout << "Failed to send HTTP request. (Connection closed)\n";
+
+            //Retry connection until successfully send data or until user closes connection
+            while (!query_result)
+            {
+                if (multi_threaded)
+                {
+                    m.lock();
+                    cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                    cout << "Retrying connection. Enter 'ESC' to cancel retrying and close connection.\n";
+                    m.unlock();
+                }
+                else
+                    cout << "Retrying connection. Enter 'ESC' to cancel retrying and close connection.\n";
+
+                if (GetAsyncKeyState(VK_ESCAPE))
+                {
+                    if (multi_threaded) //if this was used in a multi-thread enviroment, ALL THREADS THAT WAS CURRENT HAVING CONNECTION PROBLEMS WILL BE TERMINATED
+                    {
+                        m.lock();
+                        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                        cout << "Connection terminated by user.\n";
+                        m.unlock();
+                    }
+                    else
+                        cout << "Connection terminated by user.\n";
+                    
+                    int shutdown_result = shutdown(sock_Connect, SD_SEND);
+                    freeaddrinfo(result);
+                    delete[] host_name;
+                    closesocket(sock_Connect);
+                    return;
+                }
+
+                connect_Result = connect(sock_Connect, result->ai_addr, (int)result->ai_addrlen);
+                if (connect_Result == SOCKET_ERROR)
+                {
+                    if (multi_threaded)
+                    {
+                        m.lock();
+                        cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                        cout << "Connection failed.\n";
+                        m.unlock();
+                    }
+                    else
+                        cout << "\nConnection failed.\n";
+                    
+                    closesocket(sock_Connect);
+                    sock_Connect = INVALID_SOCKET;
+                    continue;
+                }
+
+                query_result = REQUEST_QUERY(sock_Connect, addr, host_name, multi_threaded);
+            } 
+
+            //connection re-established successfully, process the response from server
+            RESPONSE_QUERY(sock_Connect, addr, host_name, multi_threaded, folder_dir);
+        }
     }
     
     //Clean up
+    int shutdown_result = shutdown(sock_Connect, SD_SEND);
     freeaddrinfo(result);
     delete[] host_name;
     closesocket(sock_Connect);
@@ -1270,6 +1410,10 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool
                     fout << recvbuff[0];
                     i++;
                 }
+                else if (byte_recv == SOCKET_ERROR && WSAGetLastError() == WSAECONNRESET)
+                {
+                    cout << "Server prematurely closes connection.\n";
+                }
                 
                 progress = (float(i) / content_length) * 100;
                 if (progress - downloadbar > 10)
@@ -1474,6 +1618,10 @@ void readChunk(ofstream &fout, SOCKET sock_Connect, int chunk_size)
         {
             chunk += recvbuff[0];
             i++;
+        }
+        else if (byte_recv == SOCKET_ERROR && WSAGetLastError() == WSAECONNRESET)
+        {
+            cout << "Server prematurely closes connection.\n";
         }
     }
 
