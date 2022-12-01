@@ -16,9 +16,9 @@ using namespace std;
 void process_address(char* addr, bool multi_threaded);
 bool REQUEST_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded);
 bool REQUEST_QUERY_FILENAME(SOCKET sock_Connect, char* host_name, string abs_path, string file_name, bool multi_threaded);
-void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded);
+void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded, string folder_dir);
 bool RESPONSE_QUERY_GET_FILENAMES(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded, vector<string> &file_names);
-void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, string file_name, bool multi_threaded);
+void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, string file_name, bool multi_threaded, string folder_dir);
 
 //support functions
 char* getHostnameFromURL(char* URL);
@@ -37,6 +37,6 @@ string get_filename(char* addr);
 int getChunkSize(string chunk_size_16);
 void readChunk(ofstream &fout, SOCKET sock_Connect, int chunk_size);
 bool readCRLF(SOCKET sock_Connect);
-void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool multi_threaded);
+void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool multi_threaded, string folder_dir);
 string progressBar(float progress);
 void printline(string line);

@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstring>
 #include <thread>
+#include <direct.h>
 #include <mutex> //stop the print result to be overlap from each thread, learn more: https://stackoverflow.com/questions/25848615/c-printing-cout-overlaps-in-multithreading
 #include "client.h"
 
@@ -28,7 +29,7 @@ vector<string> MIME_file_types{".aac", ".abw", ".arc", ".avif", ".avi", ".azw", 
                                 ".ogv", ".ogx", ".opus", ".otf", ".png", ".pdf", ".php", ".ppt", ".pptx",
                                 ".rar", ".rtf", ".sh", ".svg", ".tar", ".tif", ".tiff", ".ts", ".ttf", ".txt",
                                 ".vsd", ".wav", ".weba", ".webm", ".webp", ".woff", ".woff2", ".xhtml", ".xls",
-                                ".xlsx", ".xml", ".xul", ".zip", ".3gp", ".3g2", ".7z"};
+                                ".xlsx", ".xml", ".xul", ".zip", ".3gp", ".3g2", ".7z", ".tex"};
 
 int main(int argc, char* argv[])
 {
@@ -224,6 +225,24 @@ void process_address(char* addr, bool multi_threaded)
         {
             get_filenames_result = RESPONSE_QUERY_GET_FILENAMES(sock_Connect, addr, host_name, multi_threaded, file_names);
 
+            //create folder
+            string folder_dir = "";
+            if (_mkdir(Folder_name.c_str()) == -1)
+            {
+                if (multi_threaded)
+                {
+                    m.lock();
+                    cout << "----------------------------------------------------------------------------------------------------------------------\n";
+                    cout << "[Thread " << this_thread::get_id() << "] - " << addr << ":\n";
+                    cout << "Failed to create folder. Downloading directly into program directory.\n";
+                    m.unlock();
+                }
+                else
+                    cout << "Failed to create folder. Downloading directly into program directory.\n";
+            }
+            else
+                folder_dir = Folder_name + "/";
+
             //with each filename in file_names: create a new HTTP request to download that file
             int num_Files = file_names.size();
             bool REQUEST_result;
@@ -232,7 +251,7 @@ void process_address(char* addr, bool multi_threaded)
                 REQUEST_result = REQUEST_QUERY_FILENAME(sock_Connect, host_name, abs_path, file_names[file_idx], multi_threaded);
 
                 if (REQUEST_result)
-                    RESPONSE_QUERY_FILENAME(sock_Connect, addr, host_name, file_names[file_idx], multi_threaded);
+                    RESPONSE_QUERY_FILENAME(sock_Connect, addr, host_name, file_names[file_idx], multi_threaded, folder_dir);
             }
         }
     }
@@ -242,8 +261,9 @@ void process_address(char* addr, bool multi_threaded)
         bool query_result = REQUEST_QUERY(sock_Connect, addr, host_name, multi_threaded);
         
         //Recieve data
+        string folder_dir = "";
         if (query_result)
-            RESPONSE_QUERY(sock_Connect, addr, host_name, multi_threaded);
+            RESPONSE_QUERY(sock_Connect, addr, host_name, multi_threaded, folder_dir);
     }
     
     //Clean up
@@ -347,7 +367,7 @@ bool REQUEST_QUERY_FILENAME(SOCKET sock_Connect, char* host_name, string abs_pat
     return true;
 }
 
-void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded)
+void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi_threaded, string folder_dir)
 {
     //ref code: https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-recv
     int byte_recv;
@@ -436,12 +456,12 @@ void RESPONSE_QUERY(SOCKET sock_Connect, char* addr, char* host_name, bool multi
         if (content_length > 0) //content-length type
         {
             string filename = get_filename(addr);
-            downloadFile(sock_Connect, filename, content_length, multi_threaded);
+            downloadFile(sock_Connect, filename, content_length, multi_threaded, folder_dir);
         }
         else if (content_length == -1) //Transfer-encoding: chunked
         {
             string filename = get_filename(addr);
-            downloadFile(sock_Connect, filename, content_length, multi_threaded);
+            downloadFile(sock_Connect, filename, content_length, multi_threaded, folder_dir);
         }
     }
     else
@@ -748,7 +768,7 @@ bool RESPONSE_QUERY_GET_FILENAMES(SOCKET sock_Connect, char* addr, char* host_na
     return false;
 }
 
-void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, string file_name, bool multi_threaded)
+void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, string file_name, bool multi_threaded, string folder_dir)
 {
     int byte_recv;
     vector<string> headers;
@@ -814,10 +834,9 @@ void RESPONSE_QUERY_FILENAME(SOCKET sock_Connect, char* addr, char* host_name, s
         }
         
         if (content_length > 0) //content-length type
-            downloadFile(sock_Connect, file_name, content_length, multi_threaded);
+            downloadFile(sock_Connect, file_name, content_length, multi_threaded, folder_dir);
         else if (content_length == -1) //Transfer-encoding: chunked
-            downloadFile(sock_Connect, file_name, content_length, multi_threaded);
-            
+            downloadFile(sock_Connect, file_name, content_length, multi_threaded, folder_dir);            
     }
     else
     {
@@ -980,14 +999,18 @@ bool hasFolderName(string abs_path)
 string getFolderName(string abs_path)
 {
     int n = abs_path.length();
+
     string Folder_name = "";
-    for (int i = n - 2; i >= n; i--)
+    for (int i = n - 2; i >= 0; i--)
     {
         if (abs_path[i] == '/')
             return Folder_name;
         
         Folder_name = abs_path[i] + Folder_name;
     }
+
+    if (Folder_name != "")
+        return Folder_name;
 
     return "NewFolder";
 }
@@ -1211,12 +1234,15 @@ string get_filename(char* addr)
     return "index.html";
 }
 
-void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool multi_threaded)
+void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool multi_threaded, string folder_dir)
 {
     if (content_length > 0) //Download "content-length" type
     {
         ofstream fout;
-        fout.open(filename, ios::binary);
+        if (folder_dir != "")
+            fout.open(folder_dir + filename, ios::binary);
+        else
+            fout.open(filename, ios::binary);
 
         if (fout.is_open())
         {
@@ -1265,13 +1291,19 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool
             if (!multi_threaded)
             {
                 cout << "Downloading '" << filename << "': " << progressBar(100) << "\n";
-                cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+                if (folder_dir == "")
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+                else
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory/" << folder_dir << ".\n";
             }
             else
             {
                 m.lock();
                 cout << "Downloading '" << filename << "': 100%\n";
-                cout << "Successfully downloaded file '" << filename << "' into program directory.\n";
+                if (folder_dir == "")
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+                else
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory/" << folder_dir << ".\n";
                 m.unlock();
             }
             
@@ -1294,7 +1326,10 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool
     else if (content_length == -1) //Download "Transfer-Encoding: chunked" type
     {
         ofstream fout;
-        fout.open(filename, ios::binary);
+        if (folder_dir != "")
+            fout.open(folder_dir + filename, ios::binary);
+        else
+            fout.open(filename, ios::binary);
 
         if (fout.is_open())
         {
@@ -1344,11 +1379,17 @@ void downloadFile(SOCKET sock_Connect, string filename, int content_length, bool
             if (multi_threaded)
             {
                 m.lock();
-                cout << "Successfully downloaded file '" << filename << "' into program directory.\n";
+                if (folder_dir == "")
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+                else
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory/" << folder_dir << ".\n";
                 m.unlock();
             }
             else
-                cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+                if (folder_dir == "")
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory.\n";
+                else
+                    cout << "\nSuccessfully downloaded file '" << filename << "' into program directory/" << folder_dir << ".\n";
             
             fout.close();
         }
